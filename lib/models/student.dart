@@ -1,47 +1,60 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
+
 class Student {
-  final int? id;
-  final String name;
-  final String username;
-  final String email;
-  final String phone;
-  final String password;
-  final String address;
-  final String year;
+  String? studentId; // Changed to String for Firebase UID
+  String name;
+  String email;
+  String password; // Note: Don't store passwords in Firestore in production
+  String? year;
+  String? deptName;
+  String? fieldOfInterest;
+  String? clubsJoined;
+  String? contactInfo;
 
   Student({
-    this.id,
+    this.studentId,
     required this.name,
-    required this.username,
     required this.email,
-    required this.phone,
     required this.password,
-    required this.address,
-    required this.year,
+    this.year,
+    this.deptName,
+    this.fieldOfInterest,
+    this.clubsJoined,
+    this.contactInfo,
   });
 
+  // Convert Student to Map for Firestore
   Map<String, dynamic> toMap() {
     return {
-      'id': id,
       'name': name,
-      'username': username,
       'email': email,
-      'phone': phone,
-      'password': password,
-      'address': address,
       'year': year,
+      'dept_name': deptName,
+      'field_of_interest': fieldOfInterest,
+      'clubs_joined': clubsJoined,
+      'contact_info': contactInfo,
+      'created_at': FieldValue.serverTimestamp(),
     };
   }
 
-  factory Student.fromMap(Map<String, dynamic> map) {
+  // Create Student from Firestore document
+  factory Student.fromMap(Map<String, dynamic> map, String id) {
     return Student(
-      id: map['id'],
-      name: map['name'],
-      username: map['username'],
-      email: map['email'],
-      phone: map['phone'],
-      password: map['password'],
-      address: map['address'],
+      studentId: id,
+      name: map['name'] ?? '',
+      email: map['email'] ?? '',
+      password: '', // Don't retrieve password from Firestore
       year: map['year'],
+      deptName: map['dept_name'],
+      fieldOfInterest: map['field_of_interest'],
+      clubsJoined: map['clubs_joined'],
+      contactInfo: map['contact_info'],
     );
+  }
+
+  // Create Student from Firestore DocumentSnapshot
+  factory Student.fromFirestore(DocumentSnapshot doc) {
+    Map<String, dynamic> data = doc.data() as Map<String, dynamic>;
+    return Student.fromMap(data, doc.id);
   }
 }

@@ -1,7 +1,7 @@
-import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import '../utils/app_colors.dart';
-import '../database/database_helper.dart';
 import 'login_screen.dart';
 import 'home_screen.dart';
 import '../models/student.dart';
@@ -16,50 +16,43 @@ class SignupScreen extends StatefulWidget {
 class _SignupScreenState extends State<SignupScreen> {
   final _formKey = GlobalKey<FormState>();
   final _nameController = TextEditingController();
-  final _usernameController = TextEditingController();
   final _emailController = TextEditingController();
-  final _phoneController = TextEditingController();
-  final _passwordController = TextEditingController();
-  final _addressController = TextEditingController();
   final _yearController = TextEditingController();
+  final _deptController = TextEditingController();
+  final _contactController = TextEditingController();
+  final _passwordController = TextEditingController();
 
-  bool _isPasswordVisible = false;
+  final FirebaseAuth _auth = FirebaseAuth.instance;
+  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+
   bool _isLoading = false;
-  
+  bool _obscurePassword = true;
+
   // Interest selection
   final List<String> _availableInterests = [
-    'Coding',
-    'Sports',
-    'Music',
-    'Art',
-    'Dance',
-    'Photography',
-    'Gaming',
-    'Reading',
-    'Writing',
-    'Volunteering',
+    'Coding','Sports','Music','Art','Dance','Photography','Gaming','Reading',
+    'Writing','Volunteering','Robotics','Design'
   ];
   final Set<String> _selectedInterests = {};
 
   @override
   void dispose() {
     _nameController.dispose();
-    _usernameController.dispose();
     _emailController.dispose();
-    _phoneController.dispose();
-    _passwordController.dispose();
-    _addressController.dispose();
     _yearController.dispose();
+    _deptController.dispose();
+    _contactController.dispose();
+    _passwordController.dispose();
     super.dispose();
   }
 
   Future<void> _signup() async {
     if (!_formKey.currentState!.validate()) return;
-    
+
     if (_selectedInterests.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Please select at least one interest'),
+          content: Text('Please select at least one field of interest'),
           backgroundColor: Colors.orange,
         ),
       );
@@ -68,58 +61,65 @@ class _SignupScreenState extends State<SignupScreen> {
 
     setState(() => _isLoading = true);
 
-    final student = Student(
-      name: _nameController.text.trim(),
-      username: _usernameController.text.trim(),
-      email: _emailController.text.trim(),
-      phone: _phoneController.text.trim(),
-      password: _passwordController.text,
-      address: _addressController.text.trim(),
-      year: _yearController.text.trim(),
-    );
-
     try {
-      if (kIsWeb) {
-        await Future.delayed(const Duration(seconds: 1));
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Signup successful!'),
-            backgroundColor: Colors.green,
-          ),
-        );
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(
-            builder: (context) => HomeScreen(student: student),
-          ),
-        );
-      } else {
-        final id = await DatabaseHelper.instance.insertStudent(student);
-        if (!mounted) return;
+      // Create user with Firebase Authentication
+      UserCredential userCredential = await _auth.createUserWithEmailAndPassword(
+        email: _emailController.text.trim(),
+        password: _passwordController.text,
+      );
 
-        if (id > 0) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Signup successful!'),
-              backgroundColor: Colors.green,
-            ),
-          );
-          Navigator.pushReplacement(
-            context,
-            MaterialPageRoute(
-              builder: (context) => HomeScreen(student: student),
-            ),
-          );
-        } else {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Signup failed!'),
-              backgroundColor: Colors.red,
-            ),
-          );
-        }
+      // Update display name
+      await userCredential.user?.updateDisplayName(_nameController.text.trim());
+
+      // Create student object
+      final student = Student(
+        studentId: userCredential.user!.uid,
+        name: _nameController.text.trim(),
+        email: _emailController.text.trim(),
+        password: _passwordController.text,
+        year: _yearController.text.trim(),
+        deptName: _deptController.text.trim(),
+        fieldOfInterest: _selectedInterests.join(', '),
+        clubsJoined: null,
+        contactInfo: _contactController.text.trim(),
+      );
+
+      // Store additional user data in Firestore
+      await _firestore.collection('students').doc(userCredential.user!.uid).set(student.toMap());
+
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Signup successful!'),
+          backgroundColor: Colors.green,
+        ),
+      );
+
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(
+          builder: (context) => HomeScreen(student: student),
+        ),
+      );
+    } on FirebaseAuthException catch (e) {
+      if (!mounted) return;
+      
+      String errorMessage = 'Signup failed!';
+      if (e.code == 'weak-password') {
+        errorMessage = 'The password provided is too weak.';
+      } else if (e.code == 'email-already-in-use') {
+        errorMessage = 'An account already exists for this email.';
+      } else if (e.code == 'invalid-email') {
+        errorMessage = 'The email address is invalid.';
       }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(errorMessage),
+          backgroundColor: Colors.red,
+        ),
+      );
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -147,7 +147,6 @@ class _SignupScreenState extends State<SignupScreen> {
           ),
           child: Column(
             children: [
-              // Handle bar
               Container(
                 margin: const EdgeInsets.only(top: 12),
                 width: 40,
@@ -245,23 +244,16 @@ class _SignupScreenState extends State<SignupScreen> {
     return Scaffold(
       body: Stack(
         children: [
-          // Background
           Container(color: AppColors.background),
-
-          // Bottom wave decoration
           Positioned(
             bottom: -50,
             left: -50,
             right: 0,
             child: CustomPaint(
               size: Size(MediaQuery.of(context).size.width, 200),
-              painter: WavePainter(
-                color: AppColors.secondaryBackground.withOpacity(0.6),
-              ),
+              painter: WavePainter(color: AppColors.secondaryBackground.withOpacity(0.6)),
             ),
           ),
-
-          // Main content
           SafeArea(
             child: SingleChildScrollView(
               child: Padding(
@@ -271,7 +263,6 @@ class _SignupScreenState extends State<SignupScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.center,
                     children: [
-                      // Back button
                       Align(
                         alignment: Alignment.centerLeft,
                         child: IconButton(
@@ -280,8 +271,6 @@ class _SignupScreenState extends State<SignupScreen> {
                         ),
                       ),
                       const SizedBox(height: 20),
-
-                      // Logo
                       Container(
                         width: 90,
                         height: 90,
@@ -289,15 +278,9 @@ class _SignupScreenState extends State<SignupScreen> {
                           color: AppColors.primary,
                           borderRadius: BorderRadius.circular(22),
                         ),
-                        child: Icon(
-                          Icons.groups_rounded,
-                          size: 50,
-                          color: AppColors.accent,
-                        ),
+                        child: Icon(Icons.groups_rounded, size: 50, color: AppColors.accent),
                       ),
                       const SizedBox(height: 16),
-
-                      // App name
                       Text(
                         'ClubHub',
                         style: TextStyle(
@@ -317,8 +300,6 @@ class _SignupScreenState extends State<SignupScreen> {
                         ),
                       ),
                       const SizedBox(height: 40),
-
-                      // Welcome text
                       Text(
                         'Create your account',
                         style: TextStyle(
@@ -328,8 +309,6 @@ class _SignupScreenState extends State<SignupScreen> {
                         ),
                       ),
                       const SizedBox(height: 20),
-
-                      // Sign Up title
                       Text(
                         'Sign Up',
                         style: TextStyle(
@@ -339,159 +318,47 @@ class _SignupScreenState extends State<SignupScreen> {
                         ),
                       ),
                       const SizedBox(height: 32),
-
-                      // Full Name Field
-                      Container(
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(
-                            color: AppColors.secondaryBackground.withOpacity(0.5),
-                            width: 1.5,
-                          ),
-                        ),
-                        child: TextFormField(
-                          controller: _nameController,
-                          decoration: InputDecoration(
-                            hintText: 'Full name',
-                            hintStyle: TextStyle(
-                              color: AppColors.textSecondary.withOpacity(0.6),
-                              fontSize: 15,
-                            ),
-                            prefixIcon: Icon(
-                              Icons.person_outline,
-                              color: AppColors.primary,
-                              size: 22,
-                            ),
-                            border: InputBorder.none,
-                            contentPadding: const EdgeInsets.symmetric(
-                              horizontal: 16,
-                              vertical: 16,
-                            ),
-                          ),
-                          validator: (value) {
-                            if (value == null || value.isEmpty) return 'Enter full name';
-                            return null;
-                          },
-                        ),
+                      _buildTextField(
+                        controller: _nameController,
+                        hintText: 'Full name',
+                        icon: Icons.person_outline,
+                        validator: (v) => v!.isEmpty ? 'Enter full name' : null,
                       ),
                       const SizedBox(height: 16),
-
-                      // Username Field
-                      Container(
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(
-                            color: AppColors.secondaryBackground.withOpacity(0.5),
-                            width: 1.5,
-                          ),
-                        ),
-                        child: TextFormField(
-                          controller: _usernameController,
-                          decoration: InputDecoration(
-                            hintText: 'Username',
-                            hintStyle: TextStyle(
-                              color: AppColors.textSecondary.withOpacity(0.6),
-                              fontSize: 15,
-                            ),
-                            prefixIcon: Icon(
-                              Icons.account_circle_outlined,
-                              color: AppColors.primary,
-                              size: 22,
-                            ),
-                            border: InputBorder.none,
-                            contentPadding: const EdgeInsets.symmetric(
-                              horizontal: 16,
-                              vertical: 16,
-                            ),
-                          ),
-                          validator: (value) {
-                            if (value == null || value.isEmpty) return 'Enter username';
-                            return null;
-                          },
-                        ),
+                      _buildTextField(
+                        controller: _emailController,
+                        hintText: 'Email address',
+                        icon: Icons.email_outlined,
+                        keyboardType: TextInputType.emailAddress,
+                        validator: (v) {
+                          if (v == null || v.isEmpty) return 'Enter email';
+                          if (!v.contains('@')) return 'Enter valid email';
+                          return null;
+                        },
                       ),
                       const SizedBox(height: 16),
-
-                      // Email Field
-                      Container(
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(
-                            color: AppColors.secondaryBackground.withOpacity(0.5),
-                            width: 1.5,
-                          ),
-                        ),
-                        child: TextFormField(
-                          controller: _emailController,
-                          keyboardType: TextInputType.emailAddress,
-                          decoration: InputDecoration(
-                            hintText: 'Email address',
-                            hintStyle: TextStyle(
-                              color: AppColors.textSecondary.withOpacity(0.6),
-                              fontSize: 15,
-                            ),
-                            prefixIcon: Icon(
-                              Icons.email_outlined,
-                              color: AppColors.primary,
-                              size: 22,
-                            ),
-                            border: InputBorder.none,
-                            contentPadding: const EdgeInsets.symmetric(
-                              horizontal: 16,
-                              vertical: 16,
-                            ),
-                          ),
-                          validator: (value) {
-                            if (value == null || value.isEmpty) return 'Enter email';
-                            if (!value.contains('@')) return 'Enter valid email';
-                            return null;
-                          },
-                        ),
+                      _buildTextField(
+                        controller: _yearController,
+                        hintText: 'Year (e.g., 1st, 2nd, 3rd, 4th)',
+                        icon: Icons.calendar_today_outlined,
+                        validator: (v) => v!.isEmpty ? 'Enter year' : null,
                       ),
                       const SizedBox(height: 16),
-
-                      // Phone Field
-                      Container(
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(
-                            color: AppColors.secondaryBackground.withOpacity(0.5),
-                            width: 1.5,
-                          ),
-                        ),
-                        child: TextFormField(
-                          controller: _phoneController,
-                          keyboardType: TextInputType.phone,
-                          decoration: InputDecoration(
-                            hintText: 'Phone number',
-                            hintStyle: TextStyle(
-                              color: AppColors.textSecondary.withOpacity(0.6),
-                              fontSize: 15,
-                            ),
-                            prefixIcon: Icon(
-                              Icons.phone_outlined,
-                              color: AppColors.primary,
-                              size: 22,
-                            ),
-                            border: InputBorder.none,
-                            contentPadding: const EdgeInsets.symmetric(
-                              horizontal: 16,
-                              vertical: 16,
-                            ),
-                          ),
-                          validator: (value) {
-                            if (value == null || value.isEmpty) return 'Enter phone number';
-                            return null;
-                          },
-                        ),
+                      _buildTextField(
+                        controller: _deptController,
+                        hintText: 'Department (e.g., CSE, EEE, MECHA, CIVIL)',
+                        icon: Icons.school_outlined,
+                        validator: (v) => v!.isEmpty ? 'Enter department' : null,
                       ),
                       const SizedBox(height: 16),
-
-                      // Password Field
+                      _buildTextField(
+                        controller: _contactController,
+                        hintText: 'Contact number',
+                        icon: Icons.phone_outlined,
+                        keyboardType: TextInputType.phone,
+                        validator: (v) => v!.isEmpty ? 'Enter contact number' : null,
+                      ),
+                      const SizedBox(height: 16),
                       Container(
                         decoration: BoxDecoration(
                           color: Colors.white,
@@ -503,122 +370,34 @@ class _SignupScreenState extends State<SignupScreen> {
                         ),
                         child: TextFormField(
                           controller: _passwordController,
-                          obscureText: !_isPasswordVisible,
+                          obscureText: _obscurePassword,
                           decoration: InputDecoration(
                             hintText: 'Password',
                             hintStyle: TextStyle(
                               color: AppColors.textSecondary.withOpacity(0.6),
                               fontSize: 15,
                             ),
-                            prefixIcon: Icon(
-                              Icons.lock_outline,
-                              color: AppColors.primary,
-                              size: 22,
-                            ),
+                            prefixIcon: Icon(Icons.lock_outline, color: AppColors.primary, size: 22),
                             suffixIcon: IconButton(
                               icon: Icon(
-                                _isPasswordVisible
+                                _obscurePassword
                                     ? Icons.visibility_off_outlined
                                     : Icons.visibility_outlined,
                                 color: AppColors.textSecondary,
-                                size: 22,
                               ),
-                              onPressed: () {
-                                setState(() {
-                                  _isPasswordVisible = !_isPasswordVisible;
-                                });
-                              },
+                              onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
                             ),
                             border: InputBorder.none,
-                            contentPadding: const EdgeInsets.symmetric(
-                              horizontal: 16,
-                              vertical: 16,
-                            ),
+                            contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
                           ),
-                          validator: (value) {
-                            if (value == null || value.isEmpty) return 'Enter password';
-                            if (value.length < 6) return 'Password must be at least 6 characters';
+                          validator: (v) {
+                            if (v == null || v.isEmpty) return 'Enter password';
+                            if (v.length < 6) return 'Password must be at least 6 characters';
                             return null;
                           },
                         ),
                       ),
                       const SizedBox(height: 16),
-
-                      // Address Field
-                      Container(
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(
-                            color: AppColors.secondaryBackground.withOpacity(0.5),
-                            width: 1.5,
-                          ),
-                        ),
-                        child: TextFormField(
-                          controller: _addressController,
-                          decoration: InputDecoration(
-                            hintText: 'Address',
-                            hintStyle: TextStyle(
-                              color: AppColors.textSecondary.withOpacity(0.6),
-                              fontSize: 15,
-                            ),
-                            prefixIcon: Icon(
-                              Icons.home_outlined,
-                              color: AppColors.primary,
-                              size: 22,
-                            ),
-                            border: InputBorder.none,
-                            contentPadding: const EdgeInsets.symmetric(
-                              horizontal: 16,
-                              vertical: 16,
-                            ),
-                          ),
-                          validator: (value) {
-                            if (value == null || value.isEmpty) return 'Enter address';
-                            return null;
-                          },
-                        ),
-                      ),
-                      const SizedBox(height: 16),
-
-                      // Year Field
-                      Container(
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(
-                            color: AppColors.secondaryBackground.withOpacity(0.5),
-                            width: 1.5,
-                          ),
-                        ),
-                        child: TextFormField(
-                          controller: _yearController,
-                          decoration: InputDecoration(
-                            hintText: 'Year (e.g., 1, 2, 3, 4)',
-                            hintStyle: TextStyle(
-                              color: AppColors.textSecondary.withOpacity(0.6),
-                              fontSize: 15,
-                            ),
-                            prefixIcon: Icon(
-                              Icons.school_outlined,
-                              color: AppColors.primary,
-                              size: 22,
-                            ),
-                            border: InputBorder.none,
-                            contentPadding: const EdgeInsets.symmetric(
-                              horizontal: 16,
-                              vertical: 16,
-                            ),
-                          ),
-                          validator: (value) {
-                            if (value == null || value.isEmpty) return 'Enter year';
-                            return null;
-                          },
-                        ),
-                      ),
-                      const SizedBox(height: 16),
-
-                      // Interests Field (Tap to select)
                       GestureDetector(
                         onTap: _showInterestSelector,
                         child: Container(
@@ -633,16 +412,12 @@ class _SignupScreenState extends State<SignupScreen> {
                           ),
                           child: Row(
                             children: [
-                              Icon(
-                                Icons.interests_outlined,
-                                color: AppColors.primary,
-                                size: 22,
-                              ),
+                              Icon(Icons.interests_outlined, color: AppColors.primary, size: 22),
                               const SizedBox(width: 12),
                               Expanded(
                                 child: Text(
                                   _selectedInterests.isEmpty
-                                      ? 'Select your interests'
+                                      ? 'Select your field of interest'
                                       : _selectedInterests.join(', '),
                                   style: TextStyle(
                                     color: _selectedInterests.isEmpty
@@ -654,18 +429,12 @@ class _SignupScreenState extends State<SignupScreen> {
                                   overflow: TextOverflow.ellipsis,
                                 ),
                               ),
-                              Icon(
-                                Icons.arrow_forward_ios,
-                                color: AppColors.textSecondary,
-                                size: 16,
-                              ),
+                              Icon(Icons.arrow_forward_ios, color: AppColors.textSecondary, size: 16),
                             ],
                           ),
                         ),
                       ),
                       const SizedBox(height: 32),
-
-                      // Sign Up Button
                       SizedBox(
                         width: double.infinity,
                         height: 54,
@@ -674,9 +443,7 @@ class _SignupScreenState extends State<SignupScreen> {
                           style: ElevatedButton.styleFrom(
                             backgroundColor: AppColors.accent,
                             foregroundColor: Colors.white,
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(12),
-                            ),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                             elevation: 2,
                           ),
                           child: _isLoading
@@ -690,16 +457,11 @@ class _SignupScreenState extends State<SignupScreen> {
                                 )
                               : const Text(
                                   'Sign Up',
-                                  style: TextStyle(
-                                    fontSize: 17,
-                                    fontWeight: FontWeight.bold,
-                                  ),
+                                  style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold),
                                 ),
                         ),
                       ),
                       const SizedBox(height: 32),
-
-                      // Social login icons
                       Row(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
@@ -711,25 +473,18 @@ class _SignupScreenState extends State<SignupScreen> {
                         ],
                       ),
                       const SizedBox(height: 24),
-
-                      // Login link
                       Row(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
                           Text(
                             'Already have an account? ',
-                            style: TextStyle(
-                              color: AppColors.textSecondary,
-                              fontSize: 14,
-                            ),
+                            style: TextStyle(color: AppColors.textSecondary, fontSize: 14),
                           ),
                           TextButton(
                             onPressed: () {
                               Navigator.pushReplacement(
                                 context,
-                                MaterialPageRoute(
-                                  builder: (context) => const LoginScreen(),
-                                ),
+                                MaterialPageRoute(builder: (_) => const LoginScreen()),
                               );
                             },
                             child: Text(
@@ -754,6 +509,40 @@ class _SignupScreenState extends State<SignupScreen> {
     );
   }
 
+  Widget _buildTextField({
+    required TextEditingController controller,
+    required String hintText,
+    required IconData icon,
+    TextInputType? keyboardType,
+    String? Function(String?)? validator,
+  }) {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: AppColors.secondaryBackground.withOpacity(0.5),
+          width: 1.5,
+        ),
+      ),
+      child: TextFormField(
+        controller: controller,
+        keyboardType: keyboardType,
+        decoration: InputDecoration(
+          hintText: hintText,
+          hintStyle: TextStyle(
+            color: AppColors.textSecondary.withOpacity(0.6),
+            fontSize: 15,
+          ),
+          prefixIcon: Icon(icon, color: AppColors.primary, size: 22),
+          border: InputBorder.none,
+          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+        ),
+        validator: validator,
+      ),
+    );
+  }
+
   Widget _buildSocialIcon(IconData icon, Color color) {
     return Container(
       width: 54,
@@ -770,7 +559,7 @@ class _SignupScreenState extends State<SignupScreen> {
             color: Colors.black.withOpacity(0.04),
             blurRadius: 8,
             offset: const Offset(0, 2),
-          ),
+          )
         ],
       ),
       child: Icon(icon, color: color, size: 28),
@@ -778,39 +567,29 @@ class _SignupScreenState extends State<SignupScreen> {
   }
 }
 
-// Wave painter for decorative background (same as login screen)
 class WavePainter extends CustomPainter {
   final Color color;
-
   WavePainter({required this.color});
 
   @override
   void paint(Canvas canvas, Size size) {
-    final paint = Paint()
-      ..color = color
-      ..style = PaintingStyle.fill;
-
+    final paint = Paint()..color = color;
     final path = Path();
-    path.moveTo(0, size.height * 0.5);
-
+    path.lineTo(0, size.height * 0.8);
     path.quadraticBezierTo(
       size.width * 0.25,
-      size.height * 0.3,
+      size.height * 0.7,
       size.width * 0.5,
-      size.height * 0.5,
+      size.height * 0.8,
     );
-
     path.quadraticBezierTo(
       size.width * 0.75,
-      size.height * 0.7,
+      size.height * 0.9,
       size.width,
-      size.height * 0.5,
+      size.height * 0.8,
     );
-
-    path.lineTo(size.width, size.height);
-    path.lineTo(0, size.height);
+    path.lineTo(size.width, 0);
     path.close();
-
     canvas.drawPath(path, paint);
   }
 

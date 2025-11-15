@@ -1,5 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+
 import 'utils/app_colors.dart';
 import 'screens/splash_screen.dart';
 import 'screens/welcome_screen.dart';
@@ -7,7 +11,26 @@ import 'screens/login_screen.dart';
 import 'screens/signup_screen.dart';
 import 'screens/home_screen.dart';
 
-void main() {
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+
+  try {
+    await Firebase.initializeApp(
+      options: const FirebaseOptions(
+        apiKey: "AIzaSyDHwpMZz33zSrGy1yE51Ddqej1gvVVi3fY",
+        authDomain: "clubhub-a4d77.firebaseapp.com",
+        projectId: "clubhub-a4d77",
+        storageBucket: "clubhub-a4d77.firebasestorage.app",
+        messagingSenderId: "344717597676",
+        appId: "1:344717597676:web:5457cdec19f152d1f43ec9",
+        measurementId: "G-7J4BBWM1YN",
+      ),
+    );
+    print("✅ Firebase initialized successfully");
+  } catch (e) {
+    print("❌ Firebase initialization error: $e");
+  }
+
   runApp(const ClubHubApp());
 }
 
@@ -20,7 +43,6 @@ class ClubHubApp extends StatelessWidget {
       title: 'ClubHub',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
-        // Set Poppins as the default font for the entire app
         textTheme: GoogleFonts.poppinsTextTheme(
           Theme.of(context).textTheme,
         ),
@@ -41,74 +63,6 @@ class ClubHubApp extends StatelessWidget {
             color: AppColors.white,
           ),
         ),
-        inputDecorationTheme: InputDecorationTheme(
-          filled: true,
-          fillColor: AppColors.white,
-          labelStyle: GoogleFonts.poppins(
-            color: AppColors.textSecondary,
-          ),
-          hintStyle: GoogleFonts.poppins(
-            color: AppColors.textSecondary.withOpacity(0.6),
-          ),
-          border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(12),
-            borderSide: BorderSide.none,
-          ),
-          enabledBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(12),
-            borderSide: BorderSide(
-              color: AppColors.textSecondary.withOpacity(0.2),
-              width: 1,
-            ),
-          ),
-          focusedBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(12),
-            borderSide: const BorderSide(
-              color: AppColors.accent,
-              width: 2,
-            ),
-          ),
-        ),
-        elevatedButtonTheme: ElevatedButtonThemeData(
-          style: ElevatedButton.styleFrom(
-            backgroundColor: AppColors.accent,
-            foregroundColor: AppColors.white,
-            textStyle: GoogleFonts.poppins(
-              fontSize: 16,
-              fontWeight: FontWeight.w600,
-            ),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12),
-            ),
-            elevation: 0,
-            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
-          ),
-        ),
-        outlinedButtonTheme: OutlinedButtonThemeData(
-          style: OutlinedButton.styleFrom(
-            foregroundColor: AppColors.accent,
-            textStyle: GoogleFonts.poppins(
-              fontSize: 16,
-              fontWeight: FontWeight.w600,
-            ),
-            side: const BorderSide(
-              color: AppColors.accent,
-              width: 2,
-            ),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12),
-            ),
-            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
-          ),
-        ),
-        textButtonTheme: TextButtonThemeData(
-          style: TextButton.styleFrom(
-            foregroundColor: AppColors.accent,
-            textStyle: GoogleFonts.poppins(
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-        ),
       ),
       initialRoute: '/splash',
       routes: {
@@ -119,5 +73,37 @@ class ClubHubApp extends StatelessWidget {
         '/home': (context) => const HomeScreen(student: null),
       },
     );
+  }
+}
+
+/// 🔹 Helper: Sign up user and store info in Firestore
+Future<void> signUpUser({
+  required String name,
+  required String email,
+  required String password,
+}) async {
+  final FirebaseAuth _auth = FirebaseAuth.instance;
+  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+
+  try {
+    // 1️⃣ Create user with email & password
+    UserCredential userCredential = await _auth.createUserWithEmailAndPassword(
+      email: email,
+      password: password,
+    );
+
+    String uid = userCredential.user!.uid;
+
+    // 2️⃣ Save user data in Firestore
+    await _firestore.collection('users').doc(uid).set({
+      'name': name,
+      'email': email,
+      'createdAt': FieldValue.serverTimestamp(),
+    });
+
+    print("✅ User registered and data saved in Firestore");
+
+  } catch (e) {
+    print("❌ Sign up error: $e");
   }
 }
